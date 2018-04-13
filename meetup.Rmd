@@ -1,0 +1,872 @@
+---
+title: "Representation learning: Using deep learning, Bayesian inference and Generative Adversarial Networks"
+author: "Hamaad Shah"
+date: "10/04/2018"
+output: beamer_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Disclaimer
+
+This work is not necessarily a representation of any past or current employer of mine.
+
+## Introduction
+
+- We will explore the use of deep learning, Bayesian inference and Generative Adversarial Networks (GANs) for automatic feature engineering or representation learning. 
+
+- The idea is to automatically learn a set of features from, potentially noisy, raw data that can be useful in supervised learning tasks such as in computer vision and insurance. 
+
+- In this manner we avoid the manual process of handcrafted feature engineering by learning a set of features automatically, i.e., representation learning, that can help in solving certain tasks such as image recognition and insurance loss risk prediction.
+
+## Computer Vision Task
+
+- We will use the MNIST dataset for this task where the raw data is a 2 dimensional tensor of pixel intensities per image. 
+
+- The image is our unit of analysis: We will predict the probability of each class for each image. 
+- This is a multiclass classification task and we will use the accuracy score to assess model performance on the test fold.
+
+## Computer Vision Task
+
+![2 dimensional tensor of pixel intensities per image.](pixel_lattice.png)
+
+## Insurance Task
+
+- We will use a synthetic dataset where the raw data is a 2 dimensional tensor of historical policy level information per policy-period combination: Per unit this will be $\mathbb{R}^{4\times3}$, i.e., 4 historical time periods and 3 transactions types.
+
+- The policy-period combination is our unit of analysis: We will predict the probability of loss for time period 5 in the future - think of this as a potential renewal of the policy for which we need to predict whether it would make a loss for us or not hence affecting whether we decided to renew the policy and / or adjust the renewal premium to take into account the additional risk.
+
+- This is a binary class classification task and we will use the AUROC score to assess model performance.
+
+## Insurance Task
+
+![2 dimensional tensor of transaction values per policy-period combination.](trans_lattice.png)
+
+## Supervised Learning
+
+- Please note the similarities between the raw data for the computer vision task and the raw data for the insurance task. 
+
+- Our main goal here is to learn a good representation of this raw data using automatic feature engineering via deep learning, Bayesian inference and GANs.
+
+## Scikit-learn, Keras and TensorFlow
+
+- We will use the Python machine learning library scikit-learn for data transformation and the classification task. 
+
+- We will code the representation learners as scikit-learn transformers such that they can be readily used by scikit-learn pipelines. 
+
+- The representation learners will be coded using Keras with the TensorFlow backend. 
+
+- We use an external GPU, i.e., GTX 1070, on a MacBook Pro.
+
+## Scikit-learn, Keras and TensorFlow
+
+\tiny
+```{python, eval=FALSE, echo=TRUE}
+dcgan = DeepConvGenAdvNet(batch_size=100,
+                          iterations=10000,
+                          z_size=2)
+
+pipe_dcgan = Pipeline(steps=[("DCGAN", dcgan),
+                             ("scaler_classifier", scaler_classifier),
+                             ("classifier", logistic)])
+                             
+pipe_dcgan = pipe_dcgan.fit(x_train, y_train)
+
+acc_dcgan = pipe_dcgan.score(x_test, y_test)
+```
+
+## Vanilla Autoencoders
+
+- An autoencoder is an unsupervised learning technique where the objective is to learn a set of features that can be used to reconstruct the input data.
+
+- Our input data, for instance for the computer vision task, is $X \in \mathbb{R}^{N \times 784}$. 
+
+- An encoder function $E$ maps this to a set of $K$ features such that $E: \mathbb{R}^{N \times 784} \rightarrow \mathbb{R}^{N \times K}$. 
+
+- A decoder function $D$ uses the set of $K$ features to reconstruct the input data such that $D: \mathbb{R}^{N \times K} \rightarrow \mathbb{R}^{N \times 784}$. 
+
+## Vanilla Autoencoders
+
+- Lets denote the reconstructed data as $\tilde{X} = D(E(X))$. 
+
+- The goal is to learn the encoding and decoding functions such that we minimize the difference between the input data and the reconstructed data. 
+
+- An example for an objective function for this task can be the Mean Squared Error (MSE) such that $\frac{1}{N}||\tilde{X} - X||^{2}_{2}$. 
+    
+- We learn the encoding and decoding functions by minimizing the MSE using the parameters that define the encoding and decoding functions.
+
+- The gradient of the MSE with respect to the parameters are calculated using the chain rule, i.e., backpropagation, and used to update the parameters via an optimization algorithm such as Stochastic Gradient Descent (SGD). 
+
+## Vanilla Autoencoders
+
+- Lets assume we have a single layer autoencoder using the Exponential Linear Unit (ELU) activation function, batch normalization, dropout and the Adaptive Moment (Adam) optimization algorithm. 
+
+- $B$ is the batch size, $K$ is the number of features.
+
+## Vanilla Autoencoders
+
+- Exponential Linear Unit: 
+    - The activation function is smooth everywhere and avoids the vanishing gradient problem as the output takes on negative values when the input is negative. 
+    - $\alpha$ is taken to be $1.0$.
+
+\begin{align*}
+H_{\alpha}(z) &= 
+\begin{cases}
+&\alpha\left(\exp(z) - 1\right) \quad \text{if} \quad z < 0 \\
+&z \quad \text{if} \quad z \geq 0
+\end{cases} \\
+\frac{dH_{\alpha}(z)}{dz} &= 
+\begin{cases}
+&\alpha\left(\exp(z)\right) \quad \text{if} \quad z < 0 \\
+&1 \quad \text{if} \quad z \geq 0
+\end{cases} 
+\end{align*}
+
+## Vanilla Autoencoders
+
+- Batch Normalization: 
+    - The idea is to transform the inputs into a hidden layer's activation functions. 
+    - We standardize or normalize first using the mean and variance parameters on a per feature basis and then learn a set of scaling and shifting parameters on a per feature basis that transforms the data. 
+    
+## Vanilla Autoencoders
+
+- Batch Normalization: 
+    - The following equations describe this layer succintly: The parameters we learn in this layer are $\left(\mu_{j}, \sigma_{j}^2, \beta_{j}, \gamma_{j}\right) \quad \forall j \in \{1, \dots, K\}$.
+
+\begin{align*}
+\mu_{j} &= \frac{1}{B} \sum_{i=1}^{B} X_{i,j} \quad &\forall j \in \{1, \dots, K\} \\
+\sigma_{j}^2 &= \frac{1}{B} \sum_{i=1}^{B} \left(X_{i,j} - \mu_{j}\right)^2 \quad &\forall j \in \{1, \dots, K\} \\
+\hat{X}_{:,j} &= \frac{X_{:,j} - \mu_{j}}{\sqrt{\sigma_{j}^2 + \epsilon}} \quad &\forall j \in \{1, \dots, K\} \\
+Z_{:,j} &= \gamma_{j}\hat{X}_{:,j} + \beta_{j} \quad &\forall j \in \{1, \dots, K\}
+\end{align*}
+
+## Vanilla Autoencoders
+
+- Dropout: 
+    - This regularization technique simply drops the outputs from input and hidden units with a certain probability say $50\%$.
+    - Dropout can be used for approximate Bayesian inference for deep learners. On this topic there has been great work done by Zoubin Ghahramani's student Yarin Gal.
+    - I recommend reading their paper(s): "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning".
+
+- Adam Optimization Algorithm: 
+    - This adaptive algorithm combines ideas from the Momentum and RMSProp optimization algorithms. 
+    - The goal is to have some memory of past gradients which can guide future parameters updates. 
+    
+## Vanilla Autoencoders
+
+- Adam Optimization Algorithm:     
+    - The following equations for the algorithm succintly describe this method assuming $\theta$ is our set of parameters to be learnt and $\eta$ is the learning rate.
+
+\begin{align*}
+m &\leftarrow \beta_{1}m + \left[\left(1 - \beta_{1}\right)\left(\nabla_{\theta}\text{MSE}\right)\right] \\
+s &\leftarrow \beta_{2}s + \left[\left(1 - \beta_{2}\right)\left(\nabla_{\theta}\text{MSE} \otimes \nabla_{\theta}\text{MSE} \right)\right] \\
+\theta &\leftarrow \theta - \eta m \oslash \sqrt{s + \epsilon}
+\end{align*}
+
+## Denoising Autoencoders
+
+- The idea here is to add some noise to the data and try to learn a set of robust features that can reconstruct the non-noisy data from the noisy data. 
+
+- The MSE objective functions is as follows, $\frac{1}{N}||D(E(X + \epsilon)) - X||^{2}_{2}$, where $\epsilon$ is some noise term.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- So far we have used flattened or reshaped raw data. 
+
+- Such a 1 dimensional tensor of pixel intensities per image, $\mathbb{R}^{784}$, might not take into account useful spatial features that the 2 dimensional tensor, $\mathbb{R}^{28\times28}$, might contain. 
+
+- To overcome this problem, we introduce the concept of convolution filters, considering first their 1 dimensional version and then their 2 dimensional version. 
+
+\begin{align*}
+&X \in \mathbb{R}^{N \times 28 \times 28} \\
+&E: \mathbb{R}^{N \times 28 \times 28} \rightarrow \mathbb{R}^{N \times K} \\
+&D: \mathbb{R}^{N \times K} \rightarrow \mathbb{R}^{N \times 28 \times 28}
+\end{align*}
+
+## 1 Dimensional Convolutional Autoencoders
+
+- The ideas behind convolution filters are closely related to handcrafted feature engineering: One can view the handcrafted features as simply the result of a predefined convolution filter, i.e., a convolution filter that has not been learnt based on the raw data at hand. 
+
+- Suppose we have raw transactions data per some unit of analysis, i.e., mortgages, that will potentially help us in classifying a unit as either defaulted or not defaulted. 
+
+- We will keep this example simple by only allowing the transaction values to be either \$100 or \$0. 
+
+- The raw data per unit spans 5 time periods while the defaulted label is for the next period, i.e., period 6. 
+
+## 1 Dimensional Convolutional Autoencoders
+
+- Here is an example of a raw data for a particular unit:
+
+\begin{align*}
+x = 
+\begin{array}
+{l}
+\text{Period 1} \\ \text{Period 2} \\ \text{Period 3} \\ \text{Period 4} \\ \text{Period 5}
+\end{array}
+    \left[
+    \begin{array}
+    {c}
+    \$0 \\ \$0 \\ \$100 \\ \$0 \\ \$0
+    \end{array}
+    \right]
+\end{align*}
+
+## 1 Dimensional Convolutional Autoencoders
+
+- Suppose further that if the average transaction value is \$20 then we will see a default in period 6 for this particular mortgage unit. Otherwise we do not see a default in period 6. 
+
+- The average transaction value is an example of a handcrafted feature: A predefined handcrafted feature that has not been learnt in any manner. 
+
+- It has been arrived at via domain knowledge of credit risk. Denote this as $\mathbf{H}(x)$.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- The idea of learning such a feature is an example of a 1 dimensional convolution filter. As follows:
+
+\begin{align*}
+\mathbf{C}(x|\alpha) = \alpha_1 x_1 + \alpha_2 x_2 + \alpha_3 x_3 + \alpha_4 x_4 + \alpha_5 x_5
+\end{align*}
+
+- Assuming that $\mathbf{H}(x)$ is the correct representation of the raw data for this supervised learning task then the optimal set of parameters learnt via supervised learning, or perhaps unsupervised learning and then transferred to the supervised learning task, i.e., transfer learning, for $\mathbf{C}(x|\alpha)$ is as follows where $\alpha$ is $\left[0.2, 0.2, 0.2, 0.2, 0.2\right]$:
+
+\begin{align*}
+\mathbf{C}(x|\alpha) = 0.2 x_1 + 0.2 x_2 + 0.2 x_3 + 0.2 x_4 + 0.2 x_5
+\end{align*}
+
+## 1 Dimensional Convolutional Autoencoders
+
+- This is a simple example however this clearly illusrates the principle behind using deep learning for automatic feature engineering or representation learning. 
+
+- One of the main benefits of learning such a representation in an unsupervised manner is that the same representation can then be used for multiple supervised learning tasks: Transfer learning. This is a principled manner of learning a representation from raw data.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- To summarize the 1 dimensional convolution filter for our simple example is defined as: 
+
+\begin{align*}
+\mathbf{C}(x|\alpha)&= x * \alpha \\
+&= \sum_{t=1}^{5} x_t \alpha_t
+\end{align*}
+
+- $x$ is the input.
+
+- $\alpha$ is the kernel.
+
+- The output $x * \alpha$ is called a feature map and $*$ is the convolution operator or filter. This is the main difference between a vanilla neural network and a convolution neural network: We replace the matrix multiplication operator by the convolution operator.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- Depending on the task at hand we can have different types of convolution filters.
+
+- Kernel size can be altered. In our example the kernel size is 5.
+
+- Stride size can be altered. In our example we had no stride size however suppose that stride size was 1 and kernel size was 2, i.e., $\alpha = \left[\alpha_1, \alpha_2\right]$, then we would apply the kernel $\alpha$ at the start of the input, i.e., $\left[x_1, x_2\right] * \left[\alpha_1, \alpha_2\right]$, and move the kernel over the next area of the input, i.e., $\left[x_2, x_3\right] * \left[\alpha_1, \alpha_2\right]$, and so on and so forth until we arrive at a feature map that consists of 4 real values. This is called a valid convolution while a padded, i.e., say padded with zero values, convolution would give us a feature map that is the same size as the input, i.e., 5 real values in our example.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- We can apply an activation function to the feature maps such as ELU mentioned earlier.
+
+- Finally we can summarize the information contained in feature maps by taking a maximum or average value over a defined portion of the feature map. For instance, if after using a valid convolution we arrive at a feature map of size 4 and then apply a max pooling operation with size 4 then we will be taking the maximum value of this feature map. The result is another feature map.
+
+- This automates feature engineering however introduces architecture engineering where different architectures consisting of various convolution filters, activation functions, batch normalization layers, dropout layers and pooling operators can be stacked together in a pipeline in order to learn a good representation of the raw data. One usually creates an ensemble of such architectures.
+
+## 1 Dimensional Convolutional Autoencoders
+
+- The goal behind convolutional autoencoders is to use convolution filters, activation functions, batch normalization layers, dropout layers and pooling operators to create an encoder function which will learn a good representation of our raw data. 
+
+- The decoder will also use a similar set of layers as the encoder to reconstruct the raw data with one exception: Instead of using a pooling operator it will use an upsampling operator. 
+
+- The basic idea behind the upsampling operator is to repeat an element a certain number of times say size 4: One can view this as the inverse operator to the pooling operator. 
+
+- The pooling operator is essentially a downsampling operator and the upsampling operator is simply the inverse of that in some sense.
+
+## 2 Dimensional Convolutional Autoencoders
+
+- For 2 dimensional convolution filters the idea is similar as for the 1 dimensional convolution filters. 
+
+- We will stick to our previously mentioned banking example to illustrate this point.
+
+\begin{align*}
+x = 
+\begin{array}
+{l}
+\text{Period 1} \\ \text{Period 2} \\ \text{Period 3} \\ \text{Period 4} \\ \text{Period 5}
+\end{array}
+    \left[
+    \begin{array}
+    {ccc}
+    \$0 & \$0 & \$0 \\
+    \$0 & \$200 & \$0 \\
+    \$100 & \$0 & \$0 \\
+    \$0 & \$0 & \$300 \\
+    \$0 & \$0 & \$0
+    \end{array}
+    \right]
+\end{align*}
+
+## 2 Dimensional Convolutional Autoencoders 
+
+- In the 2 dimensional tensor of raw transactions data now we have 5 historical time periods, i.e., the rows, and 3 different transaction types, i.e., the columns. 
+
+- We will use a kernel, $\alpha \in \mathbb{R}^{2\times3}$, to extract useful features from the raw data. 
+
+- The choice of such a kernel means that we are interested in finding a feature map across all 3 transaction types and 2 historical time periods. 
+
+- We will use a stride length of 1 and a valid convolution to extract features over different patches of the raw data. 
+
+## 2 Dimensional Convolutional Autoencoders
+
+- The following will illustrate this point where $x_{\text{patch}} \subset x$:
+
+\begin{align*}
+\alpha &=
+    \left[
+    \begin{array}
+    {ccc}
+    \alpha_{1,1} & \alpha_{1,2} & \alpha_{1,3} \\
+    \alpha_{2,1} & \alpha_{2,2} & \alpha_{2,3}
+    \end{array}
+    \right] \\
+x_{\text{patch}} &= 
+    \left[
+    \begin{array}
+    {ccc}
+    \$0 & \$0 & \$0 \\
+    \$0 & \$200 & \$0
+    \end{array}
+    \right] \\
+\mathbf{C}(x=x_{\text{patch}}|\alpha) &= x * \alpha \\
+&= \sum_{t=1}^{2} \sum_{k=1}^{3} x_{t,k} \alpha_{t,k}
+\end{align*}
+
+## 2 Dimensional Convolutional Autoencoders
+
+The principles and ideas apply to 2 dimensional convolution filters as they do for their 1 dimensional counterparts there we will not repeat them here.
+
+\begin{align*}
+&X \in \mathbb{R}^{N \times 28 \times 28} \\
+&E: \mathbb{R}^{N \times 28 \times 28} \rightarrow \mathbb{R}^{N \times K} \\
+&D: \mathbb{R}^{N \times K} \rightarrow \mathbb{R}^{N \times 28 \times 28}
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- Given our mortgage default example a potentially more useful deep learning architecture might be the Recurrent Neural Network (RNN), specifically their state of the art variant the Long Short Term Memory (LSTM) network. 
+
+- The goal is to explicitly take into account the sequential nature of the raw data.
+
+\begin{align*}
+&X \in \mathbb{R}^{N \times 28 \times 28} \\
+&E: \mathbb{R}^{N \times 28 \times 28} \rightarrow \mathbb{R}^{N \times K} \\
+&D: \mathbb{R}^{N \times K} \rightarrow \mathbb{R}^{N \times 28 \times 28}
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- The gradients in a RNN depend on the parameter matrices defined for the model. 
+
+- Simply put these parameter matrices can end up being multiplied many times over and hence cause two major problems for learning: Exploding and vanishing gradients. 
+
+- If the spectral radius of the parameter matrices, i.e., the maximum absolute value of the eigenvalues of a matrix, is more than 1 then gradients can become large enough, i.e., explode in value, such that learning diverges and similarly if the spectral radius is less than 1 then gradients can become small, i.e., vanish in value, such that the next best transition for the parameters cannot be reliably calculated. 
+
+- Appropriate calculation of the gradient is important for estimating the optimal set of parameters that define a machine learning method and the LSTM network overcomes these problems in a vanilla RNN. We now define the LSTM network for 1 time step, i.e., 1 memory cell.
+
+## Sequence to Sequence Autoencoders
+
+- We calculate the value of the input gate, the value of the memory cell state at time period $t$ where $f(x)$ is some activation function and the value of the forget gate:
+
+\begin{align*}
+i_{t} &= \sigma(W_{i}x_{t} + U_{i}h_{t-1} + b_{i}) \\
+\tilde{c_{t}} &= f(W_{c}x_{t} + U_{c}h_{t-1} + b_{c}) \\
+f_{t} &= \sigma(W_{f}x_{t} + U_{f}h_{t-1} + b_{f})
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- The forget gate controls the amount the LSTM remembers, i.e., the value of the memory cell state at time period $t-1$ where $\otimes$ is the hadamard product:
+
+\begin{align*}
+c_{t} = i_{t} \otimes \tilde{c_{t}} + f_{t} \otimes c_{t-1} 
+\end{align*}
+
+- With the updated state of the memory cell we calculate the value of the outputs gate and finally the output value itself:
+
+\begin{align*}
+o_{t} &= \sigma(W_{o}x_{t} + U_{o}h_{t-1} + b_{o}) \\
+h_{t} &= o_{t} \otimes f(c_{t})
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- We can have a wide variety of LSTM architectures such as the convolutional LSTM where note that we replace the matrix multiplication operators in the input gate, the initial estimate $\tilde{c_{t}}$ of the memory cell state, the forget gate and the output gate by the convolution operator $*$:
+
+\begin{align*}
+i_{t} &= \sigma(W_{i} * x_{t} + U_{i} * h_{t-1} + b_{i}) \\
+\tilde{c_{t}} &= f(W_{c} * x_{t} + U_{c} * h_{t-1} + b_{c}) \\
+f_{t} &= \sigma(W_{f} * x_{t} + U_{f} * h_{t-1} + b_{f}) \\
+c_{t} &= i_{t} \otimes \tilde{c_{t}} + f_{t} \otimes c_{t-1} \\ 
+o_{t} &= \sigma(W_{o} * x_{t} + U_{o} * h_{t-1} + b_{o}) \\
+h_{t} &= o_{t} \otimes f(c_{t})
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- Another popular variant is the peephole LSTM where the gates are allowed to peep at the memory cell state:
+
+\begin{align*}
+i_{t} &= \sigma(W_{i}x_{t} + U_{i}h_{t-1} + V_{i}c_{t-1} + b_{i}) \\
+\tilde{c_{t}} &= f(W_{c}x_{t} + U_{c}h_{t-1} + V_{c}c_{t-1} + b_{c}) \\
+f_{t} &= \sigma(W_{f}x_{t} + U_{f}h_{t-1} + V_{f}c_{t-1} + b_{f}) \\
+c_{t} &= i_{t} \otimes \tilde{c_{t}} + f_{t} \otimes c_{t-1} \\ 
+o_{t} &= \sigma(W_{o}x_{t} + U_{o}h_{t-1} + V_{o}c_{t} + b_{o}) \\
+h_{t} &= o_{t} \otimes f(c_{t})
+\end{align*}
+
+## Sequence to Sequence Autoencoders
+
+- The goal for the sequence to sequence autoencoder is to create a representation of the raw data using a LSTM as an encoder. 
+
+- This representation will be a sequence of vectors say, $h_{1}, \dots, h_{T}$, learnt from a sequence of raw data vectors say, $x_{1}, \dots, x_{T}$. The final vector of the representation, $h_{T}$, is our encoded representation, also called a context vector. 
+
+- This context vector is repeated as many times as the length of the sequence such that it can be used as an input to a decoder which is yet another LSTM. 
+
+- The decoder LSTM will use this context vector to recontruct the sequence of raw data vectors, $\tilde{x_{1}}, \dots, \tilde{x_{T}}$. 
+
+- If the context vector is useful in the recontruction task then it can be further used for other tasks such as predicting default risk as given in our example.
+
+## Variational Autoencoders
+
+- We now combine Bayesian inference with deep learning by using variational inference to train a vanilla autoencoder. 
+
+- This moves us towards generative modelling which can have further use cases in semi-supervised learning. 
+
+- The other benefit of training using Bayesian inference is that we can be more robust to higher capacity deep learners, i.e., avoid overfitting. 
+
+## Variational Autoencoders
+
+- Assume $X$ is our raw data while $Z$ is our learnt representation. 
+
+- We have a prior belief on our learnt representation: 
+
+\begin{align*}
+p(Z)
+\end{align*}
+
+- The posterior distribution for our learnt representation is: 
+
+\begin{align*}
+p(Z|X)=\frac{p(X|Z)p(Z)}{p(X)}
+\end{align*}
+
+## Variational Autoencoders
+
+- The marginal likelihood, $p(X)$, is often intractable causing the posterior distribution, $p(Z|X)$, to be intractable:
+
+\begin{align*}
+p(X)=\int_{Z}p(X|Z)p(Z)dZ
+\end{align*}
+
+- We therefore need an approximate posterior distribution via variational inference that can deal with the intractability. 
+
+- This additionally also provides the benefit of dealing with large scale datasets as generally Markov Chain Monte Carlo (MCMC) methods are not well suited for large scale datasets. 
+
+## Variational Autoencoders
+
+- One might also consider Laplace approximation for the approximate posterior distribution however we will stick with variational inference as it allows a richer set of approximations compared to Laplace approximation. 
+
+- Laplace approximation simply amounts to finding the Maximum A Posteriori (MAP) estimate to an augmented likelihood optimization, taking the negative of the inverse of the Hessian at the MAP estimate to estimate the variance-covariance matrix and finally use the variance-covariance matrix with a multivariate Gaussian distribution or some other appropriate multivariate distribution.
+
+## Variational Autoencoders
+
+- Assume that our approximate posterior distribution, which is also our probabilistic encoder, is given as:
+
+\begin{align*}
+q(Z|X)
+\end{align*}
+
+- Our probabilistic decoder is given by:
+
+\begin{align*}
+p(X|Z)
+\end{align*}
+
+## Variational Autoencoders
+
+- Given our setup above with regards to an encoder and a decoder let us now write down the optimization problem where $\theta$ are the generative model parameters while $\phi$ are the variational parameters:
+
+\begin{align*}
+\log{p(X)}= \underbrace{D_{KL}(q(Z|X)||p(Z|X))}_\text{Intractable as p(Z|X) is intractable} + \underbrace{\mathcal{L}(\theta, \phi|X)}_\text{Evidence Lower Bound or ELBO}
+\end{align*}
+
+- Note that $D_{KL}(q(Z|X)||p(Z|X))$ is non-negative therefore that makes the ELBO a lower bound on $\log{p(X)}$:
+
+\begin{align*}
+\log{p(X)}\geq \mathcal{L}(\theta, \phi|X) \quad \text{as} \quad D_{KL}(q(Z|X)||p(Z|X)) \geq 0
+\end{align*}
+
+## Variational Autoencoders
+
+- Therefore we can alter our optimization problem to look only at the ELBO:
+
+\begin{align*}
+\mathcal{L}(\theta, \phi|X) &= \mathbb{E}_{q(Z|X)}\left[\log{p(X,Z)} - \log{q(Z|X)}\right] \\
+&= \mathbb{E}_{q(Z|X)}\left[\underbrace{\log{p(X|Z)}}_\text{Reconstruction error} + \log{p(Z)} - \log{q(Z|X)}\right] \\
+&= \mathbb{E}_{q(Z|X)}\left[\underbrace{\log{p(X|Z)}}_\text{Reconstruction error} - \underbrace{D_{KL}(q(Z|X)||p(Z))}_\text{Regularization}\right] \\
+&= \int_{Z} \left[\log{p(X|Z)} - D_{KL}(q(Z|X)||p(Z))\right] q(Z|X) dZ
+\end{align*}
+
+## Variational Autoencoders
+
+- The above integration problem can be solved via Monte Carlo integration as $D_{KL}(q(Z|X)||p(Z))$ is not intractable. 
+
+- Assuming that the probabilistic encoder $q(Z|X)$ is a multivariate Gaussian with a diagonal variance-covariance matrix we use the reparameterization trick to sample from this distribution say $M$ times in order to calculate the expectation term in the ELBO optimization problem. 
+
+- The reparameterization trick in this particular case amounts to sampling $M$ times from the standard Gaussian distribution, multiplying the samples by $\sigma$ and adding $\mu$ to the samples.  
+
+## Variational Autoencoders
+
+- $\mu$ is our learnt representation used for the reconstruction of the raw data. If the learnt representation is useful it can then be used for other tasks as well.
+
+- This is a powerful manner of combining Bayesian inference with deep learning. Variational inference used in this manner can be applied to various deep learning architectures and has further links with the Generative Adversarial Network (GAN).
+
+## MNIST Results: Accuracy Scores
+
+- As expected, the best score achieved here is by a 2 dimensional convolutional autoencoder.
+
+- No autoencoders: 92.000000%.
+- PCA: 91.430000%.
+- Vanilla autoencoder: 96.940000%.
+- Denoising autoencoder: 96.930000%.
+- 1 dimensional convolutional autoencoder: 97.570000%.
+- 2 dimensional convolutional autoencoder: 98.860000%.
+- Sequence to sequence autoencoder: 97.600000%.
+- Variational autoencoder: 96.520000%.
+
+## Insurance Results: AUROC Scores
+
+- The best score achieved on this task is by a vanilla autoencoder. 
+
+- This highlights the automation of feature engineering via deep learning: I believe it was Ian Goodfellow who said that a learnt representation is better than a handcrafted representation.
+
+- Note that the sequence to sequence and convolutional autoencoders did not do well on this task simply because of the manner in which I generated the synthetic transactions data: Should the data have been from a process more amenable to sequence to sequence or convolutional autoencoders it is highly likely that these architectures would’ve performed better.
+
+## Insurance Results: AUROC Scores
+
+- Without autoencoders: 92.206261%.
+- PCA: 91.128859%.
+- Handcrafted features: 93.610635%.
+- Handcrafted features and PCA: 93.160377%.
+- Vanilla autoencoder: 93.932247%.
+- Denoising autoencoder: 93.712479%.
+- 1 dimensional convolutional autoencoder: 91.509434%.
+- 2 dimensional convolutional autoencoder: 92.645798%.
+- Sequence to sequence autoencoder: 91.418310%.
+- Variational autoencoder: 90.871569%.
+
+## Generative Adversarial Networks
+
+- The purpose of deep learning is to learn a representation of high dimensional and noisy data using a sequence of differentiable functions, i.e., geometric transformations, that can perhaps be used for supervised learning tasks among others. 
+
+- It has had great success in discriminative models while generative models have fared worse due to the limitations of explicit maximum likelihood estimation (MLE). 
+
+- Adversarial learning as presented in the Generative Adversarial Network (GAN) aims to overcome these problems by using implicit MLE. 
+
+## Generative Adversarial Networks
+
+- We will use the MNIST computer vision dataset and a synthetic financial transactions dataset for an insurance task for these experiments. 
+
+- GAN is a remarkably different method of learning compared to explicit MLE. Our purpose will be to show that the representation learnt by a GAN can be used for supervised learning tasks such as image recognition and insurance loss risk prediction. 
+
+- In this manner we avoid the manual process of handcrafted feature engineering by learning a set of features automatically, i.e., representation learning.
+
+## Generative Adversarial Networks
+
+- There are 2 main components to a GAN, the generator and the discriminator, that play an adversarial game against each other. 
+
+- In doing so the generator learns how to create realistic synthetic samples from noise, i.e., the latent space $z$, while the discriminator learns how to distinguish between a real sample and a synthetic sample. 
+
+- The representation learnt by the discriminator can later on be used for other supervised learning tasks, i.e., automatic feature engineering or representation learning. 
+
+## Generative Adversarial Networks
+
+### Generator
+
+- Assume that we have a prior belief on where the latent space $z$ lies: $p(z)$. 
+
+- Given a draw from this latent space the generator $G$, a deep learner parameterized by $\theta_{G}$, outputs a synthetic sample.
+    - $G(z|\theta_{G}): z \rightarrow x_{synthetic}$
+
+## Generative Adversarial Networks
+
+### Discriminator
+
+- The discriminator $D$ is another deep learner parameterized by $\theta_{D}$ and it aims to classify if a sample is real or synthetic, i.e., if a sample is from the real data distribution: $p_{\text{data}}(x)$
+
+- Or the synthetic data distribution: $p_{G}(x)$
+
+- Let us denote the discriminator $D$ as follows.
+    - $D(x|\theta_{D}): x \rightarrow [0, 1]$
+
+- Here we assume that the positive examples are from the real data distribution while the negative examples are from the synthetic data distribution.
+
+## Generative Adversarial Networks
+
+### Game
+
+- A GAN simultaneously trains the discriminator to correctly classify real and synthetic examples while training the generator to create synthetic examples such that the discriminator incorrectly classifies real and synthetic examples. 
+
+- This 2 player minimax game has the following objective function.
+\tiny
+$$
+\min_{G(z|\theta_{G})} \max_{D(x|\theta_{D})} V(D(x|\theta_{D}), G(z|\theta_{G})) = \mathbb{E}_{x \sim p_{\text{data}}(x)} \log{D(x|\theta_{D})} + \mathbb{E}_{z \sim p(z)} \log{(1 - D(G(z|\theta_{G})|\theta_{D}))}
+$$
+
+## Generative Adversarial Networks
+
+### Game
+
+- Please note that the above expression is basically the objective function of the discriminator.
+\tiny
+$$
+\mathbb{E}_{x \sim p_{\text{data}}(x)} \log{D(x|\theta_{D})} + \mathbb{E}_{x \sim p_{G}(x)} \log{(1 - D(x|\theta_{D}))}
+$$
+\normalsize
+
+- It is clear from how the game has been set up that we are trying to obtain a solution $\theta_{D}$ for $D$ such that it maximizes $V(D, G)$ while simultaneously we are trying to obtain a solution $\theta_{G}$ for $G$ such that it minimizes $V(D, G)$.
+
+## Generative Adversarial Networks
+
+### Game
+
+- We do not simultaneously train $D$ and $G$. We train them alternately: Train $D$ and then train $G$ while freezing $D$. We repeat this for a fixed number of steps.
+
+- If the synthetic samples taken from the generator $G$ are realistic then implicitly we have learnt the distribution $p_{G}(x)$. In other words, $p_{G}(x)$ can be seen as a good estimation of $p_{\text{data}}(x)$. 
+
+- The optimal solution will be as follows.
+
+$$
+p_{G}(x)=p_{\text{data}}(x)
+$$
+
+## Generative Adversarial Networks
+
+### Game
+
+- To show this let us find the optimal discriminator $D^\ast$ given a generator $G$ and sample $x$. 
+\tiny
+\begin{align*}
+V(D, G) &= \mathbb{E}_{x \sim p_{\text{data}}(x)} \log{D(x|\theta_{D})} + \mathbb{E}_{x \sim p_{G}(x)} \log{(1 - D(x|\theta_{D}))} \\
+&= \int_{x} p_{\text{data}}(x) \log{D(x|\theta_{D})} dx + \int_{x} p_{G}(x) \log{(1 - D(x|\theta_{D}))} dx \\
+&= \int_{x} \underbrace{p_{\text{data}}(x) \log{D(x|\theta_{D})} + p_{G}(x) \log{(1 - D(x|\theta_{D}))}}_{J(D(x|\theta_{D}))} dx
+\end{align*}
+
+## Generative Adversarial Networks
+
+### Game
+
+- Let us take a closer look at the discriminator's objective function for a sample $x$.
+\tiny
+\begin{align*}
+J(D(x|\theta_{D})) &= p_{\text{data}}(x) \log{D(x|\theta_{D})} + p_{G}(x) \log{(1 - D(x|\theta_{D}))} \\
+\frac{\partial J(D(x|\theta_{D}))}{\partial D(x|\theta_{D})} &= \frac{p_{\text{data}}(x)}{D(x|\theta_{D})} - \frac{p_{G}(x)}{(1 - D(x|\theta_{D}))} \\
+0 &= \frac{p_{\text{data}}(x)}{D^\ast(x|\theta_{D^\ast})} - \frac{p_{G}(x)}{(1 - D^\ast(x|\theta_{D^\ast}))} \\
+p_{\text{data}}(x)(1 - D^\ast(x|\theta_{D^\ast})) &= p_{G}(x)D^\ast(x|\theta_{D^\ast}) \\
+p_{\text{data}}(x) - p_{\text{data}}(x)D^\ast(x|\theta_{D^\ast})) &= p_{G}(x)D^\ast(x|\theta_{D^\ast}) \\
+p_{G}(x)D^\ast(x|\theta_{D^\ast}) + p_{\text{data}}(x)D^\ast(x|\theta_{D^\ast})) &= p_{\text{data}}(x) \\
+D^\ast(x|\theta_{D^\ast}) &= \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)} 
+\end{align*}
+
+## Generative Adversarial Networks
+
+### Game
+
+- We have found the optimal discriminator given a generator. Let us focus now on the generator's objective function which is essentially to minimize the discriminator's objective function.
+\tiny
+\begin{align*}
+J(G(x|\theta_{G})) &= \mathbb{E}_{x \sim p_{\text{data}}(x)} \log{D^\ast(x|\theta_{D^\ast})} + \mathbb{E}_{x \sim p_{G}(x)} \log{(1 - D^\ast(x|\theta_{D^\ast}))} \\
+&= \mathbb{E}_{x \sim p_{\text{data}}(x)} \log{\bigg( \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) + \mathbb{E}_{x \sim p_{G}(x)} \log{\bigg(1 - \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} \\
+&= \mathbb{E}_{x \sim p_{\text{data}}(x)} \log{\bigg( \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) + \mathbb{E}_{x \sim p_{G}(x)} \log{\bigg(\frac{p_{G}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} \\
+&= \int_{x} p_{\text{data}}(x) \log{\bigg( \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) dx + \int_{x} p_{G}(x) \log{\bigg(\frac{p_{G}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} dx
+\end{align*}
+\normalsize
+
+- We will note the Kullback–Leibler (KL) divergences in the above objective function for the generator:
+\tiny 
+$$
+D_{KL}(P||Q) = \int_{x} p(x) \log\bigg(\frac{p(x)}{q(x)}\bigg) dx
+$$
+
+## Generative Adversarial Networks
+
+### Game
+
+- Recall the definition of a $\lambda$ divergence.
+\tiny
+$$
+D_{\lambda}(P||Q) = \lambda D_{KL}(P||\lambda P + (1 - \lambda) Q) + (1 - \lambda) D_{KL}(Q||\lambda P + (1 - \lambda) Q)
+$$
+\normalsize
+
+- If $\lambda$ takes the value of 0.5 this is then called the Jensen-Shannon (JS) divergence. This divergence is symmetric and non-negative.
+\tiny
+$$
+D_{JS}(P||Q) = 0.5 D_{KL}\bigg(P\bigg|\bigg|\frac{P + Q}{2}\bigg) + 0.5 D_{KL}\bigg(Q\bigg|\bigg|\frac{P + Q}{2}\bigg)
+$$
+
+## Generative Adversarial Networks
+
+### Game
+
+- Keeping this in mind let us take a look again at the objective function of the generator.
+\tiny
+\begin{align*}
+J(G(x|\theta_{G})) &= \int_{x} p_{\text{data}}(x) \log{\bigg( \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) dx + \int_{x} p_{G}(x) \log{\bigg(\frac{p_{G}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} dx \\
+&= \int_{x} p_{\text{data}}(x) \log{\bigg(\frac{2}{2}\frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) dx + \int_{x} p_{G}(x) \log{\bigg(\frac{2}{2}\frac{p_{G}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} dx \\
+&= \int_{x} p_{\text{data}}(x) \log{\bigg(\frac{1}{2}\frac{1}{0.5}\frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_{G}(x)}} \bigg) dx + \int_{x} p_{G}(x) \log{\bigg(\frac{1}{2}\frac{1}{0.5}\frac{p_{G}(x)}{p_{\text{data}}(x) + p_{G}(x)}\bigg)} dx \\
+&= \int_{x} p_{\text{data}}(x) \bigg[ \log(0.5) + \log{\bigg(\frac{p_{\text{data}}(x)}{0.5 (p_{\text{data}}(x) + p_{G}(x))}} \bigg) \bigg] dx \\ &+ \int_{x} p_{G}(x) \bigg[\log(0.5) + \log{\bigg(\frac{p_{G}(x)}{0.5 (p_{\text{data}}(x) + p_{G}(x))}\bigg) \bigg] } dx \\
+\end{align*}
+
+## Generative Adversarial Networks
+
+### Game
+
+\tiny
+\begin{align*}
+&= \log\bigg(\frac{1}{4}\bigg) + \int_{x} p_{\text{data}}(x) \bigg[\log{\bigg(\frac{p_{\text{data}}(x)}{0.5 (p_{\text{data}}(x) + p_{G}(x))}} \bigg) \bigg] dx \\ 
+&+ \int_{x} p_{G}(x) \bigg[\log{\bigg(\frac{p_{G}(x)}{0.5 (p_{\text{data}}(x) + p_{G}(x))}\bigg) \bigg] } dx \\
+&= -\log(4) + D_{KL}\bigg(p_{\text{data}}(x)\bigg|\bigg|\frac{p_{\text{data}}(x) + p_{G}(x)}{2}\bigg) + D_{KL}\bigg(p_{G}(x)\bigg|\bigg|\frac{p_{\text{data}}(x) + p_{G}(x)}{2}\bigg) \\
+&= -\log(4) + 2 \bigg(0.5 D_{KL}\bigg(p_{\text{data}}(x)\bigg|\bigg|\frac{p_{\text{data}}(x) + p_{G}(x)}{2}\bigg) + 0.5 D_{KL}\bigg(p_{G}(x)\bigg|\bigg|\frac{p_{\text{data}}(x) + p_{G}(x)}{2}\bigg)\bigg) \\
+&= -\log(4) + 2D_{JS}(p_{\text{data}}(x)||p_{G}(x)) 
+\end{align*}
+
+## Generative Adversarial Networks
+
+### Game
+
+- It is clear from the objective function of the generator above that the global minimum value attained is $-\log(4)$ which occurs when the following holds.
+
+$$
+p_{G}(x)=p_{\text{data}}(x)
+$$
+
+- When the above holds the Jensen-Shannon divergence, i.e., $D_{JS}(p_{\text{data}}(x)||p_{G}(x))$, will be zero. Hence we have shown that the optimal solution is as follows.
+
+$$
+p_{G}(x)=p_{\text{data}}(x)
+$$
+
+## Generative Adversarial Networks
+
+### Results
+
+- In these experiments we show the ability of the generator to create realistic synthetic examples for the MNIST dataset and the insurance dataset. We use a 2-dimensional latent manifold.
+
+- Finally we show that using the representation learnt by the discriminator we can attain competitive results to using other representation learning methods for the MNIST dataset and the insurance dataset such as a wide variety of autoencoders.
+
+## Generative Adversarial Networks
+
+### Results
+
+![](DCGAN_Generated_Images.png)
+
+## Generative Adversarial Networks
+
+### Results
+
+![](DeeperCGAN_Generated_Images.png)
+
+## Generative Adversarial Networks
+
+### Results
+
+![](DCGAN_Generated_Lattices.png)
+
+## Generative Adversarial Networks
+
+### Results
+
+- The accuracy score for the MNIST classification task with DCGAN: 98.350000%.
+
+- The accuracy score for the MNIST classification task with Deeper CGAN: 99.090000%.
+
+- The AUROC score for the insurance classification task with DCGAN: 92.795883%.
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+- With image data we can perhaps judge qualitatively whether the generated data makes sense. For financial transactions data this is not possible.
+
+- However let's have a look at an example of a generated transactions lattice.
+
+- Please note that all financial transactions data has been transformed to lie between 0 and 1.
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+![](DCGAN_Generated_Lattice_Example.png)
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+- If we use the same matplotlib code as applied to the image data to plot the above generated transactions lattice we get the following image. 
+- We can see that where we have the maximum value possible for a transaction, i.e., 1, that is colored as black, while where we have the minimum value possible for a transaction, i.e., 0, that is colored as white. 
+- Transactions values in between have some gray color.  
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+![](DCGAN_Generated_Lattice_Example_Plotted.png)
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+- Finally let us compare the distributions of actual and generated transactions lattices to see whether generated values are similar to actual values. This is a simple sanity check and it seems appears that the distributions are fairly similar. 
+
+- Another way perhaps is to check if the features learnt by the discriminator are useful for a supervised learning task. This seems to be the case in our insurance data example.
+
+## Generative Adversarial Networks
+
+### The insurance data: A closer look
+
+![](Dens_Plots_Actual_Generated_Lattices.png)
+
+## Conclusion
+
+- We have shown how to use deep learning, Bayesian inference and Generative Adversarial Networks to learn a good representation of raw data, i.e., 1 or 2 dimensional tensors per unit of analysis, that can then perhaps be used for supervised learning tasks in the domain of computer vision and insurance. 
+
+- This moves us away from manual handcrafted feature engineering towards automatic feature engineering, i.e., representation learning. 
+
+- GANs can perhaps be also used for semi-supervised learning which will be the topic of another paper.
+
+## References
+
+1. Goodfellow, I., Bengio, Y. and Courville A. (2016). Deep Learning (MIT Press).
+2. Geron, A. (2017). Hands-On Machine Learning with Scikit-Learn & Tensorflow (O'Reilly).
+3. Radford, A., Luke, M. and Chintala, S. (2015). Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks (https://arxiv.org/abs/1511.06434).
+4. Goodfellow, I., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D., Ozair, S., Courville, A., Bengio, Y. (2014). Generative Adversarial Networks (https://arxiv.org/abs/1406.2661).
+
+## References
+
+5. http://scikit-learn.org/stable/#
+6. https://towardsdatascience.com/learning-rate-schedules-and-adaptive-learning-rate-methods-for-deep-learning-2c8f433990d1
+7. https://stackoverflow.com/questions/42177658/how-to-switch-backend-with-keras-from-tensorflow-to-theano
+8. https://blog.keras.io/building-autoencoders-in-keras.html
+9. https://keras.io
+10. https://github.com/fchollet/keras/blob/master/examples/mnist_acgan.py#L24
+11. https://en.wikipedia.org/wiki/Kullback–Leibler_divergence
+
+## Blog on Medium and Code on GitHub
+
+- On GitHub:
+    - <https://github.com/hamaadshah/autoencoders_public>
+    - <https://github.com/hamaadshah/gan_public>
+
+- On Medium:
+    - Automatic feature engineering using deep learning and Bayesian inference.
+    - Automatic feature engineering using Generative Adversarial Networks.
