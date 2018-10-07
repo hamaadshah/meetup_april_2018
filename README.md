@@ -8,8 +8,8 @@ Link to the meetup event:
 
 Links to the code on GitHub:
 
-- https://github.com/hamaadshah/autoencoders_public
-- https://github.com/hamaadshah/gan_public
+- https://github.com/hamaadshah/autoencoders_keras
+- https://github.com/hamaadshah/gan_keras
 
 Links to the blogs on Medium:
 
